@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QIcon
 import sys
 import psutil
+import numpy as np
 from pathlib import Path
 
 # Import core modules
@@ -294,6 +295,11 @@ class MainWindow(QMainWindow):
         self.metrics_timer.timeout.connect(self.update_metrics)
         self.metrics_timer.start(1000)  # Update every second
 
+        # Frame processing timer - feeds frames to processing worker
+        self.frame_timer = QTimer()
+        self.frame_timer.timeout.connect(self.update_processing_frames)
+        self.frame_timer.start(50)  # Update at 20 Hz
+
     def apply_theme(self):
         """Apply theme to application"""
         theme = self.config.get('application.theme', 'dark')
@@ -375,6 +381,55 @@ class MainWindow(QMainWindow):
         else:
             self.start_processing()
 
+    def create_default_calibration(self):
+        """Create default calibration matrices for initial testing"""
+        import numpy as np
+
+        # Get camera resolution
+        resolution = self.config.get('cameras.default_resolution', [320, 240])
+        width, height = resolution[0], resolution[1]
+
+        # Create a simple camera matrix (assuming ~60 degree FOV)
+        focal_length = width * 1.2  # Rough approximation
+        camera_matrix = np.array([
+            [focal_length, 0, width / 2],
+            [0, focal_length, height / 2],
+            [0, 0, 1]
+        ], dtype=np.float32)
+
+        # Create Q matrix for stereo reconstruction
+        # Assuming baseline of 10cm between cameras
+        baseline = 0.1  # meters
+        Q = np.array([
+            [1, 0, 0, -width / 2],
+            [0, 1, 0, -height / 2],
+            [0, 0, 0, focal_length],
+            [0, 0, 1/baseline, 0]
+        ], dtype=np.float32)
+
+        self.logger.info("Created default calibration matrices")
+        self.control_panel.add_log_message("Using default calibration (uncalibrated mode)")
+
+        return Q, camera_matrix
+
+    def update_processing_frames(self):
+        """Update frames in processing worker"""
+        if not self.is_running or self.processing_worker is None:
+            return
+
+        # Get frames from first two cameras (for stereo)
+        frames = self.camera_manager.get_frames()
+
+        if len(frames) >= 2 and frames[0] is not None and frames[1] is not None:
+            self.processing_worker.set_frames(frames[0], frames[1])
+
+    def on_point_cloud_ready(self, pcd):
+        """Handle new point cloud from processing worker"""
+        # Save for export
+        self._last_point_cloud = pcd
+        # Update visualization
+        self.visualization_widget.update_point_cloud(pcd)
+
     def start_processing(self):
         """Start 3D reconstruction processing"""
         if not self.camera_manager.get_active_count() > 0:
@@ -390,8 +445,12 @@ class MainWindow(QMainWindow):
         if self.processing_worker is None:
             self.processing_worker = ProcessingWorker(self.stereo_matcher, self.point_cloud_processor)
 
+            # Set default calibration if no calibration loaded
+            Q, camera_matrix = self.create_default_calibration()
+            self.processing_worker.set_calibration_data(Q, camera_matrix)
+
             # Connect signals
-            self.processing_worker.point_cloud_ready.connect(self.visualization_widget.update_point_cloud)
+            self.processing_worker.point_cloud_ready.connect(self.on_point_cloud_ready)
             self.processing_worker.disparity_ready.connect(self.visualization_widget.update_disparity)
             self.processing_worker.depth_ready.connect(self.visualization_widget.update_depth)
             self.processing_worker.processing_time.connect(
@@ -499,15 +558,76 @@ class MainWindow(QMainWindow):
     def handle_export_request(self, export_type: str):
         """Handle export request"""
         self.logger.info(f"Export requested: {export_type}")
-        self.control_panel.add_log_message(f"Export: {export_type}")
 
-    def export_point_cloud(self):
+        if export_type.startswith("pointcloud_"):
+            format_type = export_type.split("_")[1].lower()
+            self.export_point_cloud(format_type)
+        elif export_type.startswith("mesh_"):
+            format_type = export_type.split("_")[1].lower()
+            self.export_mesh(format_type)
+        elif export_type == "occupancy":
+            self.export_occupancy_map()
+
+    def export_point_cloud(self, format_type="ply"):
         """Export point cloud"""
-        self.logger.info("Exporting point cloud")
+        if self.processing_worker is None or not hasattr(self, '_last_point_cloud'):
+            QMessageBox.warning(self, "Warning", "No point cloud available to export. Start processing first.")
+            return
 
-    def export_mesh(self):
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Point Cloud",
+            str(self.file_manager.exports_dir / f"pointcloud.{format_type}"),
+            f"{format_type.upper()} Files (*.{format_type})"
+        )
+
+        if filename:
+            try:
+                import open3d as o3d
+                if hasattr(self, '_last_point_cloud') and self._last_point_cloud is not None:
+                    o3d.io.write_point_cloud(filename, self._last_point_cloud)
+                    self.status_bar.showMessage(f"Point cloud exported: {filename}")
+                    self.control_panel.add_log_message(f"Exported point cloud: {filename}")
+                    self.logger.info(f"Point cloud exported to {filename}")
+                else:
+                    QMessageBox.warning(self, "Warning", "No point cloud data available")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Export failed: {str(e)}")
+                self.logger.error(f"Point cloud export failed: {e}")
+
+    def export_mesh(self, format_type="obj"):
         """Export mesh"""
-        self.logger.info("Exporting mesh")
+        if not hasattr(self, '_last_point_cloud') or self._last_point_cloud is None:
+            QMessageBox.warning(self, "Warning", "No point cloud available. Generate mesh from point cloud first.")
+            return
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Mesh",
+            str(self.file_manager.exports_dir / f"mesh.{format_type}"),
+            f"{format_type.upper()} Files (*.{format_type})"
+        )
+
+        if filename:
+            try:
+                import open3d as o3d
+                # Generate mesh from point cloud
+                self.control_panel.add_log_message("Generating mesh from point cloud...")
+                mesh = self.point_cloud_processor.create_mesh_poisson(self._last_point_cloud)
+
+                if mesh is not None and len(mesh.triangles) > 0:
+                    o3d.io.write_triangle_mesh(filename, mesh)
+                    self.status_bar.showMessage(f"Mesh exported: {filename}")
+                    self.control_panel.add_log_message(f"Exported mesh: {filename}")
+                    self.logger.info(f"Mesh exported to {filename}")
+                else:
+                    QMessageBox.warning(self, "Warning", "Failed to generate mesh from point cloud")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Mesh export failed: {str(e)}")
+                self.logger.error(f"Mesh export failed: {e}")
+
+    def export_occupancy_map(self):
+        """Export occupancy map"""
+        self.logger.info("Exporting occupancy map")
+        self.control_panel.add_log_message("Occupancy map export not yet implemented")
 
     def open_session(self):
         """Open saved session"""
@@ -530,10 +650,24 @@ class MainWindow(QMainWindow):
         # Get system metrics
         memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
 
-        # Update control panel metrics
-        fps = 0  # Calculate actual FPS
-        points = 0  # Get from point cloud
-        processing_time = 0  # Get from processing worker
+        # Calculate actual FPS from camera workers
+        fps = 0
+        active_cameras = 0
+        for worker in self.camera_workers:
+            if hasattr(worker, 'frame_times') and len(worker.frame_times) > 0:
+                fps += len(worker.frame_times)
+                active_cameras += 1
+        if active_cameras > 0:
+            fps = fps / active_cameras  # Average FPS across cameras
+
+        # Get point count from last point cloud
+        points = 0
+        if hasattr(self, '_last_point_cloud') and self._last_point_cloud is not None:
+            import numpy as np
+            points = len(np.asarray(self._last_point_cloud.points))
+
+        # Processing time will be updated via signal from processing worker
+        processing_time = 0
 
         self.control_panel.update_metrics(fps, points, processing_time, memory)
 
