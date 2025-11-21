@@ -310,24 +310,38 @@ class CameraManager:
 
         return available
 
-    def auto_connect(self) -> int:
+    def auto_connect(self, preferred_indices: List[int] = None) -> int:
         """
         Auto-detect and connect to available cameras
+
+        Args:
+            preferred_indices: Specific camera indices to use (e.g., [2, 4, 6])
+                             If None, auto-detect available cameras
 
         Returns:
             Number of cameras successfully connected
         """
-        available_indices = self.detect_cameras()
+        if preferred_indices is not None:
+            # Use specific camera indices
+            print(f"Connecting to specific cameras: {preferred_indices}")
+            connected = 0
+            for i, cam_index in enumerate(preferred_indices[:self.num_cameras]):
+                if self.connect_camera(i, cam_index):
+                    connected += 1
+            return connected
+        else:
+            # Auto-detect available cameras
+            available_indices = self.detect_cameras()
 
-        if len(available_indices) < self.num_cameras:
-            print(f"Warning: Found only {len(available_indices)} cameras, expected {self.num_cameras}")
+            if len(available_indices) < self.num_cameras:
+                print(f"Warning: Found only {len(available_indices)} cameras, expected {self.num_cameras}")
 
-        connected = 0
-        for i, cam_index in enumerate(available_indices[:self.num_cameras]):
-            if self.connect_camera(i, cam_index):
-                connected += 1
+            connected = 0
+            for i, cam_index in enumerate(available_indices[:self.num_cameras]):
+                if self.connect_camera(i, cam_index):
+                    connected += 1
 
-        return connected
+            return connected
 
     def connect_camera(self, slot: int, device_index: int) -> bool:
         """

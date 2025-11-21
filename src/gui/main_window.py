@@ -327,11 +327,13 @@ class MainWindow(QMainWindow):
         self.logger.info("Connecting cameras...")
         self.status_bar.showMessage("Connecting cameras...")
 
-        # Auto-connect cameras
-        connected = self.camera_manager.auto_connect()
+        # Connect to specific Logitech C270 cameras at indices 2, 4, 6
+        # These are the three external Logitech webcams
+        logitech_camera_indices = [2, 4, 6]
+        connected = self.camera_manager.auto_connect(preferred_indices=logitech_camera_indices)
 
         if connected > 0:
-            self.logger.info(f"Connected {connected} cameras")
+            self.logger.info(f"Connected {connected} Logitech C270 cameras")
             self.status_bar.showMessage(f"Connected {connected} cameras")
             self.camera_panel.update_camera_status()
 
