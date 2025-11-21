@@ -212,7 +212,7 @@ class IntrinsicCalibrationDialog(QDialog):
         if camera is None:
             return
 
-        frame = camera.get_frame()
+        frame = camera.get_latest_frame()
         if frame is None:
             return
 
@@ -248,7 +248,7 @@ class IntrinsicCalibrationDialog(QDialog):
         if camera is None:
             return
 
-        frame = camera.get_frame()
+        frame = camera.get_latest_frame()
         if frame is None:
             return
 
