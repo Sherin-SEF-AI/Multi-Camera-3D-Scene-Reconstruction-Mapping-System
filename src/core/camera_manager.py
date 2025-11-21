@@ -62,9 +62,11 @@ class Camera:
             True if successful, False otherwise
         """
         try:
+            print(f"[Camera {self.index}] Opening camera...")
             self.cap = cv2.VideoCapture(self.index)
 
             if not self.cap.isOpened():
+                print(f"[Camera {self.index}] Failed to open - VideoCapture.isOpened() returned False")
                 return False
 
             # Set camera properties
@@ -77,6 +79,8 @@ class Camera:
             actual_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             actual_fps = int(self.cap.get(cv2.CAP_PROP_FPS))
 
+            print(f"[Camera {self.index}] Opened successfully: {actual_width}x{actual_height} @ {actual_fps} FPS")
+
             self.resolution = (actual_width, actual_height)
             self.fps = actual_fps
 
@@ -86,10 +90,18 @@ class Camera:
             self.contrast = self.cap.get(cv2.CAP_PROP_CONTRAST)
 
             self.is_active = True
+
+            # Try to read one test frame
+            ret, test_frame = self.cap.read()
+            if ret:
+                print(f"[Camera {self.index}] Test frame read successful: {test_frame.shape}")
+            else:
+                print(f"[Camera {self.index}] WARNING: Test frame read failed!")
+
             return True
 
         except Exception as e:
-            print(f"Error opening camera {self.index}: {e}")
+            print(f"[Camera {self.index}] Exception opening camera: {e}")
             return False
 
     def close(self) -> None:
@@ -121,9 +133,16 @@ class Camera:
 
     def _capture_loop(self) -> None:
         """Background loop for continuous frame capture"""
+        print(f"[Camera {self.index}] Capture loop started")
+        first_frame_captured = False
+
         while not self.stop_capture.is_set() and self.is_active:
             frame = self.read_frame()
             if frame is not None:
+                if not first_frame_captured:
+                    print(f"[Camera {self.index}] First frame captured: {frame.shape}")
+                    first_frame_captured = True
+
                 with self.frame_lock:
                     self.latest_frame = frame.copy()
                     self.last_frame_time = time.time()
@@ -131,6 +150,8 @@ class Camera:
 
             # Small delay to control capture rate
             time.sleep(1.0 / self.fps)
+
+        print(f"[Camera {self.index}] Capture loop ended")
 
     def read_frame(self) -> Optional[np.ndarray]:
         """
@@ -146,10 +167,17 @@ class Camera:
             ret, frame = self.cap.read()
             if ret:
                 return frame
+            else:
+                # Only print first few failures to avoid spam
+                if not hasattr(self, '_read_failures'):
+                    self._read_failures = 0
+                self._read_failures += 1
+                if self._read_failures <= 5:
+                    print(f"[Camera {self.index}] Failed to read frame (attempt {self._read_failures})")
             return None
 
         except Exception as e:
-            print(f"Error reading frame from camera {self.index}: {e}")
+            print(f"[Camera {self.index}] Exception reading frame: {e}")
             return None
 
     def get_latest_frame(self) -> Optional[np.ndarray]:
