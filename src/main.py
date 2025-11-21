@@ -38,8 +38,7 @@ def main():
     app.setApplicationName(config.get('application.name'))
     app.setApplicationVersion(config.get('application.version'))
 
-    # Enable high DPI scaling
-    app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)
+    # Note: High DPI support is enabled by default in Qt6/PyQt6
 
     # Create and show main window
     main_window = MainWindow()
