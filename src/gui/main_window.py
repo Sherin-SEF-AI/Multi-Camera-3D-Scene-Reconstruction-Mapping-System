@@ -31,6 +31,7 @@ from workers.processing_worker import ProcessingWorker
 from gui.camera_panel import CameraPanel
 from gui.visualization_widget import VisualizationWidget
 from gui.control_panel import ControlPanel
+from gui.dialogs import IntrinsicCalibrationDialog, StereoCalibrationDialog
 
 
 class MainWindow(QMainWindow):
@@ -501,12 +502,64 @@ class MainWindow(QMainWindow):
         """Start intrinsic camera calibration"""
         self.logger.info("Starting intrinsic calibration")
         self.control_panel.add_log_message("Intrinsic calibration started")
-        # TODO: Implement calibration dialog
+
+        # Check if cameras are connected
+        if self.camera_manager.get_active_count() == 0:
+            QMessageBox.warning(
+                self,
+                "No Cameras",
+                "Please connect cameras before calibration."
+            )
+            return
+
+        # Create and show calibration dialog
+        dialog = IntrinsicCalibrationDialog(
+            self.camera_manager,
+            self.calibration_manager,
+            self
+        )
+        dialog.calibration_complete.connect(self.on_intrinsic_calibration_complete)
+        dialog.exec()
+
+    def on_intrinsic_calibration_complete(self, camera_id: int, result):
+        """Handle intrinsic calibration completion"""
+        self.logger.info(f"Intrinsic calibration complete for camera {camera_id}")
+        self.control_panel.add_log_message(
+            f"Camera {camera_id} calibrated - Error: {result.reprojection_error:.4f}px"
+        )
+        self.status_bar.showMessage(f"Camera {camera_id} calibration complete")
 
     def start_stereo_calibration(self):
         """Start stereo calibration"""
         self.logger.info("Starting stereo calibration")
         self.control_panel.add_log_message("Stereo calibration started")
+
+        # Check if cameras are connected
+        if self.camera_manager.get_active_count() < 2:
+            QMessageBox.warning(
+                self,
+                "Insufficient Cameras",
+                "Stereo calibration requires at least 2 cameras."
+            )
+            return
+
+        # Create and show calibration dialog
+        dialog = StereoCalibrationDialog(
+            self.camera_manager,
+            self.calibration_manager,
+            self
+        )
+        dialog.calibration_complete.connect(self.on_stereo_calibration_complete)
+        dialog.exec()
+
+    def on_stereo_calibration_complete(self, camera_pair: tuple, result):
+        """Handle stereo calibration completion"""
+        cam1, cam2 = camera_pair
+        self.logger.info(f"Stereo calibration complete for cameras {cam1}-{cam2}")
+        self.control_panel.add_log_message(
+            f"Stereo pair {cam1}-{cam2} calibrated - Error: {result.reprojection_error:.4f}px"
+        )
+        self.status_bar.showMessage(f"Stereo calibration complete: {cam1}-{cam2}")
 
     def load_calibration(self):
         """Load calibration from file"""
