@@ -1,0 +1,87 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+logs/*.log
+calibrations/*.json
+exports/
+recordings/
+*.mp4
+*.avi
+
+# Keep directory structure but ignore contents
+logs/*
+!logs/.gitkeep
+calibrations/*
+!calibrations/.gitkeep
+exports/*
+!exports/.gitkeep
+recordings/*
+!recordings/.gitkeep
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyQt
+*.ui.autosave
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Large binary files
+*.pcd
+*.ply
+*.xyz
+*.obj
+*.stl
+
+# OS specific
+Thumbs.db
+.DS_Store

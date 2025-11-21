@@ -1,0 +1,97 @@
+{
+  "application": {
+    "name": "Multi-Camera 3D Reconstruction System",
+    "version": "1.0.0",
+    "theme": "dark"
+  },
+  "cameras": {
+    "num_cameras": 3,
+    "default_resolution": [640, 480],
+    "default_fps": 30,
+    "buffer_size": 5,
+    "auto_detect": true
+  },
+  "calibration": {
+    "chessboard_size": [9, 6],
+    "square_size_mm": 25.0,
+    "num_images_required": 20,
+    "calibration_flags": 0,
+    "save_path": "calibrations"
+  },
+  "stereo": {
+    "algorithm": "SGBM",
+    "num_disparities": 16,
+    "block_size": 15,
+    "min_disparity": 0,
+    "uniqueness_ratio": 10,
+    "speckle_window_size": 100,
+    "speckle_range": 32,
+    "pre_filter_cap": 63,
+    "p1": 8,
+    "p2": 32
+  },
+  "point_cloud": {
+    "voxel_size": 0.01,
+    "max_points": 1000000,
+    "statistical_nb_neighbors": 20,
+    "statistical_std_ratio": 2.0,
+    "color_mode": "rgb",
+    "downsample_enabled": true
+  },
+  "occupancy_mapping": {
+    "grid_resolution": 0.05,
+    "grid_size": [10.0, 10.0, 3.0],
+    "probability_threshold": 0.5,
+    "occupied_threshold": 0.7,
+    "free_threshold": 0.3
+  },
+  "slam": {
+    "feature_type": "ORB",
+    "num_features": 1000,
+    "scale_factor": 1.2,
+    "num_levels": 8,
+    "enable_loop_closure": true,
+    "min_inliers": 10
+  },
+  "processing": {
+    "mode": "balanced",
+    "num_threads": 4,
+    "enable_gpu": true,
+    "max_queue_size": 10
+  },
+  "visualization": {
+    "point_size": 2,
+    "background_color": [0.1, 0.1, 0.1],
+    "show_axes": true,
+    "show_grid": true,
+    "show_camera_frustums": true,
+    "render_fps": 60
+  },
+  "export": {
+    "default_format": "ply",
+    "save_path": "exports",
+    "compression": true,
+    "save_colors": true,
+    "save_normals": false
+  },
+  "recording": {
+    "video_codec": "mp4v",
+    "video_extension": ".mp4",
+    "save_path": "recordings",
+    "record_all_cameras": true
+  },
+  "ui": {
+    "window_size": [1920, 1080],
+    "show_tooltips": true,
+    "show_statusbar": true,
+    "panel_split": [30, 50, 20],
+    "console_max_lines": 1000
+  },
+  "logging": {
+    "level": "INFO",
+    "save_to_file": true,
+    "log_path": "logs",
+    "max_file_size_mb": 10,
+    "backup_count": 5
+  }
+}
