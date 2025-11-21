@@ -18,6 +18,8 @@ class VisualizationWidget(QWidget):
         self.point_cloud_item = None
         self.mesh_item = None
         self.trajectory_item = None
+        self.slam_map_points_item = None
+        self.occupancy_map_item = None
         self.current_mode = "Point Cloud"
 
         self.init_ui()
@@ -150,6 +152,7 @@ class VisualizationWidget(QWidget):
         """Update with depth map visualization"""
         self.info_label.setText(f"Depth map: {depth.shape}")
 
+    @pyqtSlot(np.ndarray)
     def update_trajectory(self, positions: np.ndarray):
         """Update SLAM trajectory"""
         try:
@@ -175,19 +178,103 @@ class VisualizationWidget(QWidget):
         except Exception as e:
             print(f"Error updating trajectory: {e}")
 
+    @pyqtSlot(np.ndarray, np.ndarray)
+    def update_slam_map_points(self, points: np.ndarray, colors: np.ndarray):
+        """Update SLAM map points"""
+        try:
+            # Remove old map points
+            if self.slam_map_points_item is not None:
+                self.view_widget.removeItem(self.slam_map_points_item)
+                self.slam_map_points_item = None
+
+            if len(points) == 0:
+                return
+
+            # Create scatter plot for map points
+            self.slam_map_points_item = gl.GLScatterPlotItem(
+                pos=points,
+                color=colors,
+                size=3,
+                pxMode=True
+            )
+            self.view_widget.addItem(self.slam_map_points_item)
+
+            self.info_label.setText(f"SLAM: {len(points)} map points")
+
+        except Exception as e:
+            print(f"Error updating SLAM map points: {e}")
+
+    @pyqtSlot(np.ndarray)
+    def update_occupancy_map(self, occupancy_grid: np.ndarray):
+        """Update occupancy map visualization"""
+        try:
+            # Remove old occupancy map
+            if self.occupancy_map_item is not None:
+                self.view_widget.removeItem(self.occupancy_map_item)
+                self.occupancy_map_item = None
+
+            if occupancy_grid is None or occupancy_grid.size == 0:
+                return
+
+            # Convert 2D occupancy grid to 3D points for visualization
+            # Assuming occupancy_grid is a 2D array where >0 means occupied
+            occupied_cells = np.argwhere(occupancy_grid > 0)
+
+            if len(occupied_cells) == 0:
+                return
+
+            # Scale to world coordinates (adjust as needed)
+            scale = 0.05  # 5cm per cell
+            points = occupied_cells * scale
+            # Add z=0 coordinate
+            points_3d = np.column_stack([points[:, 0], points[:, 1], np.zeros(len(points))])
+
+            # Color based on occupancy value
+            colors = np.zeros((len(points), 4))
+            colors[:, 0] = 1.0  # Red channel
+            colors[:, 3] = np.clip(occupancy_grid[occupied_cells[:, 0], occupied_cells[:, 1]] / 255.0, 0, 1)
+
+            # Create scatter plot
+            self.occupancy_map_item = gl.GLScatterPlotItem(
+                pos=points_3d,
+                color=colors,
+                size=5,
+                pxMode=True
+            )
+            self.view_widget.addItem(self.occupancy_map_item)
+
+            self.info_label.setText(f"Occupancy Map: {len(occupied_cells)} occupied cells")
+
+        except Exception as e:
+            print(f"Error updating occupancy map: {e}")
+
     def on_mode_changed(self, mode: str):
         """Handle visualization mode change"""
         self.current_mode = mode
-        # Clear current visualization
-        if self.point_cloud_item:
-            self.view_widget.removeItem(self.point_cloud_item)
-            self.point_cloud_item = None
-        if self.mesh_item:
-            self.view_widget.removeItem(self.mesh_item)
-            self.mesh_item = None
-        if self.trajectory_item:
-            self.view_widget.removeItem(self.trajectory_item)
-            self.trajectory_item = None
+
+        # Show/hide different visualizations based on mode
+        if mode == "Point Cloud":
+            # Show point cloud, hide others
+            if self.slam_map_points_item:
+                self.slam_map_points_item.setVisible(False)
+            if self.occupancy_map_item:
+                self.occupancy_map_item.setVisible(False)
+        elif mode == "SLAM Trajectory":
+            # Show trajectory and map points
+            if self.slam_map_points_item:
+                self.slam_map_points_item.setVisible(True)
+            if self.occupancy_map_item:
+                self.occupancy_map_item.setVisible(False)
+            if self.point_cloud_item:
+                self.point_cloud_item.setVisible(False)
+        elif mode == "Occupancy Map":
+            # Show occupancy map
+            if self.occupancy_map_item:
+                self.occupancy_map_item.setVisible(True)
+            if self.slam_map_points_item:
+                self.slam_map_points_item.setVisible(False)
+            if self.point_cloud_item:
+                self.point_cloud_item.setVisible(False)
 
         self.info_label.setText(f"Mode: {mode}")
 
@@ -206,5 +293,11 @@ class VisualizationWidget(QWidget):
         if self.trajectory_item:
             self.view_widget.removeItem(self.trajectory_item)
             self.trajectory_item = None
+        if self.slam_map_points_item:
+            self.view_widget.removeItem(self.slam_map_points_item)
+            self.slam_map_points_item = None
+        if self.occupancy_map_item:
+            self.view_widget.removeItem(self.occupancy_map_item)
+            self.occupancy_map_item = None
 
         self.info_label.setText("Ready - No data")

@@ -26,6 +26,7 @@ from utils.logger import get_logger
 from utils.file_manager import get_file_manager
 from workers.camera_worker import CameraWorker
 from workers.processing_worker import ProcessingWorker
+from workers.slam_worker import SLAMWorker
 
 # Import GUI widgets
 from gui.camera_panel import CameraPanel
@@ -62,10 +63,12 @@ class MainWindow(QMainWindow):
         # Worker threads
         self.camera_workers = []
         self.processing_worker = None
+        self.slam_worker = None
 
         # UI state
         self.is_running = False
         self.is_recording = False
+        self.slam_enabled = False
 
         # Initialize UI
         self.init_ui()
@@ -424,6 +427,11 @@ class MainWindow(QMainWindow):
         if len(frames) >= 2 and frames[0] is not None and frames[1] is not None:
             self.processing_worker.set_frames(frames[0], frames[1])
 
+            # Feed first camera frame to SLAM if enabled
+            if self.slam_enabled and self.slam_worker is not None:
+                import time
+                self.slam_worker.set_frame(frames[0], time.time())
+
     def on_point_cloud_ready(self, pcd):
         """Handle new point cloud from processing worker"""
         # Save for export
@@ -444,7 +452,11 @@ class MainWindow(QMainWindow):
 
         # Start processing worker
         if self.processing_worker is None:
-            self.processing_worker = ProcessingWorker(self.stereo_matcher, self.point_cloud_processor)
+            self.processing_worker = ProcessingWorker(
+                self.stereo_matcher,
+                self.point_cloud_processor,
+                self.occupancy_grid_2d
+            )
 
             # Set default calibration if no calibration loaded
             Q, camera_matrix = self.create_default_calibration()
@@ -454,6 +466,7 @@ class MainWindow(QMainWindow):
             self.processing_worker.point_cloud_ready.connect(self.on_point_cloud_ready)
             self.processing_worker.disparity_ready.connect(self.visualization_widget.update_disparity)
             self.processing_worker.depth_ready.connect(self.visualization_widget.update_depth)
+            self.processing_worker.occupancy_map_ready.connect(self.visualization_widget.update_occupancy_map)
             self.processing_worker.processing_time.connect(
                 lambda t: self.processing_time_label.setText(f"Processing: {t:.1f}ms")
             )
@@ -461,6 +474,7 @@ class MainWindow(QMainWindow):
             self.processing_worker.start()
 
         self.processing_worker.enable_processing(True)
+        self.processing_worker.enable_occupancy_mapping(True)
         self.control_panel.add_log_message("Processing started")
 
     def stop_processing(self):
@@ -478,18 +492,81 @@ class MainWindow(QMainWindow):
     def toggle_recording(self):
         """Toggle recording on/off"""
         if self.is_recording:
-            self.is_recording = False
-            self.record_action.setText('Record')
-            self.status_bar.showMessage("Recording stopped")
+            self.stop_recording()
         else:
-            self.is_recording = True
-            self.record_action.setText('Stop Recording')
-            self.status_bar.showMessage("Recording started")
+            self.start_recording()
+
+    def start_recording(self):
+        """Start recording session"""
+        if not self.is_running:
+            QMessageBox.warning(
+                self,
+                "Not Processing",
+                "Please start processing before recording."
+            )
+            return
+
+        # Create recording directory with timestamp
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        recording_dir = self.file_manager.get_path('recordings') / f"session_{timestamp}"
+        recording_dir.mkdir(parents=True, exist_ok=True)
+
+        self.recording_dir = recording_dir
+        self.recording_frame_count = 0
+
+        self.is_recording = True
+        self.record_action.setText('Stop Recording')
+        self.status_bar.showMessage(f"Recording to: {recording_dir.name}")
+        self.control_panel.add_log_message(f"Recording started: {recording_dir.name}")
+        self.logger.info(f"Recording started: {recording_dir}")
+
+    def stop_recording(self):
+        """Stop recording session"""
+        self.is_recording = False
+        self.record_action.setText('Record')
+
+        # Save session metadata
+        if hasattr(self, 'recording_dir'):
+            metadata_file = self.recording_dir / "session_info.txt"
+            try:
+                with open(metadata_file, 'w') as f:
+                    f.write(f"Session Recording\n")
+                    f.write(f"Frames recorded: {self.recording_frame_count}\n")
+                    f.write(f"SLAM enabled: {self.slam_enabled}\n")
+                    if self.slam_enabled:
+                        f.write(f"SLAM poses: {len(self.slam.poses)}\n")
+                        f.write(f"SLAM map points: {self.slam.get_num_map_points()}\n")
+
+                self.logger.info(f"Session metadata saved: {metadata_file}")
+            except Exception as e:
+                self.logger.error(f"Failed to save session metadata: {e}")
+
+        self.status_bar.showMessage("Recording stopped")
+        self.control_panel.add_log_message("Recording stopped")
+        self.logger.info("Recording stopped")
 
     def take_snapshot(self):
         """Take snapshot of current 3D scene"""
-        self.status_bar.showMessage("Snapshot saved")
-        self.logger.info("Snapshot taken")
+        if not hasattr(self, '_last_point_cloud') or self._last_point_cloud is None:
+            QMessageBox.warning(self, "No Data", "No point cloud available to snapshot.")
+            return
+
+        # Create snapshot filename with timestamp
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        snapshot_file = self.file_manager.exports_dir / f"snapshot_{timestamp}.ply"
+
+        try:
+            import open3d as o3d
+            o3d.io.write_point_cloud(str(snapshot_file), self._last_point_cloud)
+
+            self.status_bar.showMessage(f"Snapshot saved: {snapshot_file.name}")
+            self.control_panel.add_log_message(f"Snapshot: {snapshot_file.name}")
+            self.logger.info(f"Snapshot saved: {snapshot_file}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Snapshot failed: {str(e)}")
+            self.logger.error(f"Snapshot failed: {e}")
 
     def handle_calibration_request(self, calib_type: str):
         """Handle calibration request from control panel"""
@@ -528,6 +605,12 @@ class MainWindow(QMainWindow):
             f"Camera {camera_id} calibrated - Error: {result.reprojection_error:.4f}px"
         )
         self.status_bar.showMessage(f"Camera {camera_id} calibration complete")
+
+        # Update SLAM with camera intrinsics (use first camera for SLAM)
+        if camera_id == 0:
+            self.slam.set_camera_intrinsics(result.camera_matrix, result.dist_coeffs)
+            self.logger.info("SLAM camera intrinsics updated")
+            self.control_panel.add_log_message("SLAM camera intrinsics configured")
 
     def start_stereo_calibration(self):
         """Start stereo calibration"""
@@ -600,13 +683,46 @@ class MainWindow(QMainWindow):
     def toggle_slam(self, enabled: bool):
         """Toggle SLAM on/off"""
         if enabled:
+            # Check if SLAM has camera intrinsics
+            if self.slam.camera_matrix is None:
+                QMessageBox.warning(
+                    self,
+                    "SLAM Not Configured",
+                    "Please calibrate camera 0 (intrinsic) before enabling SLAM."
+                )
+                return
+
+            # Start SLAM worker
+            if self.slam_worker is None:
+                self.slam_worker = SLAMWorker(self.slam)
+
+                # Connect signals
+                self.slam_worker.trajectory_updated.connect(self.visualization_widget.update_trajectory)
+                self.slam_worker.map_points_updated.connect(self.visualization_widget.update_slam_map_points)
+                self.slam_worker.slam_stats_updated.connect(self.on_slam_stats_updated)
+
+                self.slam_worker.start()
+
+            self.slam_worker.enable_processing(True)
+            self.slam_enabled = True
+
             self.logger.info("SLAM enabled")
-            self.control_panel.add_log_message("SLAM enabled")
+            self.control_panel.add_log_message("SLAM enabled - Tracking started")
             self.control_panel.update_slam_status(True)
         else:
+            if self.slam_worker:
+                self.slam_worker.enable_processing(False)
+
+            self.slam_enabled = False
             self.logger.info("SLAM disabled")
             self.control_panel.add_log_message("SLAM disabled")
             self.control_panel.update_slam_status(False)
+
+    def on_slam_stats_updated(self, stats: dict):
+        """Handle SLAM statistics update"""
+        num_poses = stats.get('num_poses', 0)
+        num_points = stats.get('num_map_points', 0)
+        self.control_panel.update_slam_status(True, num_poses, num_points)
 
     def handle_export_request(self, export_type: str):
         """Handle export request"""
@@ -620,6 +736,8 @@ class MainWindow(QMainWindow):
             self.export_mesh(format_type)
         elif export_type == "occupancy":
             self.export_occupancy_map()
+        elif export_type == "trajectory":
+            self.export_trajectory()
 
     def export_point_cloud(self, format_type="ply"):
         """Export point cloud"""
@@ -680,7 +798,65 @@ class MainWindow(QMainWindow):
     def export_occupancy_map(self):
         """Export occupancy map"""
         self.logger.info("Exporting occupancy map")
-        self.control_panel.add_log_message("Occupancy map export not yet implemented")
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Occupancy Map",
+            str(self.file_manager.exports_dir / "occupancy_map.npy"),
+            "NumPy Array (*.npy);;PNG Image (*.png)"
+        )
+
+        if filename:
+            try:
+                # Get occupancy grid visualization
+                occupancy_vis = self.occupancy_grid_2d.get_visualization()
+
+                if occupancy_vis is not None:
+                    if filename.endswith('.png'):
+                        # Export as PNG image
+                        import cv2
+                        cv2.imwrite(filename, occupancy_vis)
+                    else:
+                        # Export as NumPy array
+                        np.save(filename, self.occupancy_grid_2d.grid)
+
+                    self.status_bar.showMessage(f"Occupancy map exported: {filename}")
+                    self.control_panel.add_log_message(f"Exported occupancy map: {filename}")
+                    self.logger.info(f"Occupancy map exported to {filename}")
+                else:
+                    QMessageBox.warning(self, "Warning", "No occupancy map data available")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Export failed: {str(e)}")
+                self.logger.error(f"Occupancy map export failed: {e}")
+
+    def export_trajectory(self):
+        """Export SLAM trajectory"""
+        if not self.slam_enabled or len(self.slam.poses) == 0:
+            QMessageBox.warning(
+                self,
+                "No Trajectory",
+                "SLAM is not enabled or no trajectory data available."
+            )
+            return
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export SLAM Trajectory",
+            str(self.file_manager.exports_dir / "trajectory.txt"),
+            "Text File (*.txt);;CSV File (*.csv)"
+        )
+
+        if filename:
+            try:
+                if self.slam.save_trajectory(filename):
+                    self.status_bar.showMessage(f"Trajectory exported: {filename}")
+                    self.control_panel.add_log_message(f"Exported trajectory: {filename}")
+                    self.logger.info(f"Trajectory exported to {filename}")
+                else:
+                    QMessageBox.warning(self, "Error", "Failed to export trajectory")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Export failed: {str(e)}")
+                self.logger.error(f"Trajectory export failed: {e}")
 
     def open_session(self):
         """Open saved session"""
@@ -750,6 +926,9 @@ class MainWindow(QMainWindow):
 
             if self.processing_worker:
                 self.processing_worker.stop()
+
+            if self.slam_worker:
+                self.slam_worker.stop()
 
             # Cleanup
             self.camera_manager.disconnect_all()

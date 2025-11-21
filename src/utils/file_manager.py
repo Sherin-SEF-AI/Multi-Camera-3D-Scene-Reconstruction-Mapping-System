@@ -278,6 +278,15 @@ class FileManager:
         """Get full path for recording file"""
         return self.recordings_dir / filename
 
+    def get_path(self, directory: str) -> Path:
+        """Get path for specified directory (exports, calibrations, recordings)"""
+        dir_map = {
+            "exports": self.exports_dir,
+            "calibrations": self.calibrations_dir,
+            "recordings": self.recordings_dir
+        }
+        return dir_map.get(directory, self.base_path)
+
     def cleanup_old_files(self, directory: str, days: int = 30) -> int:
         """
         Remove files older than specified days

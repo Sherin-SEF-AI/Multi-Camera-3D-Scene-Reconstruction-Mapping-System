@@ -275,6 +275,17 @@ class ControlPanel(QWidget):
         occ_btn.clicked.connect(lambda: self.export_requested.emit("occupancy"))
         layout.addWidget(occ_btn)
 
+        # SLAM trajectory export
+        traj_group = QGroupBox("SLAM Trajectory")
+        traj_layout = QVBoxLayout()
+
+        traj_btn = QPushButton("Export Trajectory")
+        traj_btn.clicked.connect(lambda: self.export_requested.emit("trajectory"))
+        traj_layout.addWidget(traj_btn)
+
+        traj_group.setLayout(traj_layout)
+        layout.addWidget(traj_group)
+
         layout.addStretch()
         return tab
 

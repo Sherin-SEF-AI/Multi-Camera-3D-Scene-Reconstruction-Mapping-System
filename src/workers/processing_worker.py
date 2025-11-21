@@ -21,17 +21,19 @@ class ProcessingWorker(QThread):
     processing_time = pyqtSignal(float)  # Processing time in ms
     error_occurred = pyqtSignal(str)  # Error message
 
-    def __init__(self, stereo_matcher, point_cloud_processor):
+    def __init__(self, stereo_matcher, point_cloud_processor, occupancy_grid_2d=None):
         """
         Initialize processing worker
 
         Args:
             stereo_matcher: StereoMatcher instance
             point_cloud_processor: PointCloudProcessor instance
+            occupancy_grid_2d: OccupancyGrid2D instance (optional)
         """
         super().__init__()
         self.stereo_matcher = stereo_matcher
         self.point_cloud_processor = point_cloud_processor
+        self.occupancy_grid_2d = occupancy_grid_2d
 
         self.running = False
         self.process_enabled = False
@@ -45,6 +47,9 @@ class ProcessingWorker(QThread):
         # Rectification maps
         self.rectify_maps_left = None
         self.rectify_maps_right = None
+
+        # Occupancy mapping enabled
+        self.occupancy_enabled = False
 
     def set_frames(self, left_frame: np.ndarray, right_frame: np.ndarray):
         """
@@ -76,6 +81,10 @@ class ProcessingWorker(QThread):
     def enable_processing(self, enabled: bool):
         """Enable or disable processing"""
         self.process_enabled = enabled
+
+    def enable_occupancy_mapping(self, enabled: bool):
+        """Enable or disable occupancy mapping"""
+        self.occupancy_enabled = enabled
 
     def run(self):
         """Main processing loop"""
@@ -143,6 +152,19 @@ class ProcessingWorker(QThread):
                                         )
 
                                     self.point_cloud_ready.emit(pcd)
+
+                                    # Update occupancy grid if enabled
+                                    if self.occupancy_enabled and self.occupancy_grid_2d is not None:
+                                        points = np.asarray(pcd.points)
+                                        if len(points) > 0:
+                                            # Update occupancy grid
+                                            for point in points:
+                                                self.occupancy_grid_2d.update(point[:3])
+
+                                            # Get visualization
+                                            occupancy_vis = self.occupancy_grid_2d.get_visualization()
+                                            if occupancy_vis is not None:
+                                                self.occupancy_map_ready.emit(occupancy_vis)
 
                 # Calculate processing time
                 elapsed_time = (time.time() - start_time) * 1000  # Convert to ms
