@@ -6,8 +6,8 @@
   },
   "cameras": {
     "num_cameras": 3,
-    "default_resolution": [640, 480],
-    "default_fps": 30,
+    "default_resolution": [320, 240],
+    "default_fps": 15,
     "buffer_size": 5,
     "auto_detect": true
   },

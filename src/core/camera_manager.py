@@ -328,6 +328,8 @@ class CameraManager:
             for i, cam_index in enumerate(preferred_indices[:self.num_cameras]):
                 if self.connect_camera(i, cam_index):
                     connected += 1
+                    # Small delay to allow camera initialization before next camera
+                    time.sleep(0.5)
             return connected
         else:
             # Auto-detect available cameras
@@ -340,6 +342,8 @@ class CameraManager:
             for i, cam_index in enumerate(available_indices[:self.num_cameras]):
                 if self.connect_camera(i, cam_index):
                     connected += 1
+                    # Small delay to allow camera initialization before next camera
+                    time.sleep(0.5)
 
             return connected
 
