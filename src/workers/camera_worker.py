@@ -38,6 +38,10 @@ class CameraWorker(QThread):
         """Main worker loop"""
         self.running = True
         last_fps_update = time.time()
+        frame_count = 0
+        first_frame = True
+
+        print(f"[CameraWorker {self.camera_id}] Started")
 
         while self.running:
             try:
@@ -52,6 +56,11 @@ class CameraWorker(QThread):
                 frame = camera.get_latest_frame()
 
                 if frame is not None:
+                    if first_frame:
+                        print(f"[CameraWorker {self.camera_id}] Got first frame: {frame.shape}")
+                        first_frame = False
+
+                    frame_count += 1
                     # Emit frame
                     self.frame_ready.emit(self.camera_id, frame)
 

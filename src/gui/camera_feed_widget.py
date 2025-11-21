@@ -79,26 +79,37 @@ class CameraFeedWidget(QWidget):
         if frame is None:
             return
 
-        self.current_frame = frame
+        # Debug: Print first frame received
+        if not hasattr(self, '_first_frame_printed'):
+            print(f"[CameraFeedWidget {self.camera_id}] Received first frame from camera {camera_id}: {frame.shape}")
+            self._first_frame_printed = True
 
-        # Convert BGR to RGB
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        try:
+            # Convert BGR to RGB
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        # Get dimensions
-        h, w, ch = rgb_frame.shape
-        bytes_per_line = ch * w
+            # Get dimensions
+            h, w, ch = rgb_frame.shape
+            bytes_per_line = ch * w
 
-        # Create QImage
-        qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+            # Create QImage - ensure data is contiguous and kept alive
+            # Make a copy to ensure data persists
+            rgb_frame = np.ascontiguousarray(rgb_frame)
+            qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888).copy()
 
-        # Create pixmap and display
-        pixmap = QPixmap.fromImage(qt_image)
-        scaled_pixmap = pixmap.scaled(
-            self.video_label.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
-        )
-        self.video_label.setPixmap(scaled_pixmap)
+            # Create pixmap and display
+            pixmap = QPixmap.fromImage(qt_image)
+            scaled_pixmap = pixmap.scaled(
+                self.video_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.video_label.setPixmap(scaled_pixmap)
+
+            self.current_frame = frame
+
+        except Exception as e:
+            print(f"Error updating frame for camera {camera_id}: {e}")
 
     @pyqtSlot(int, float)
     def update_fps(self, camera_id: int, fps: float):
