@@ -73,8 +73,8 @@ class CameraFeedWidget(QWidget):
 
         layout.addLayout(controls_layout)
 
-    @pyqtSlot(np.ndarray)
-    def update_frame(self, frame: np.ndarray):
+    @pyqtSlot(int, np.ndarray)
+    def update_frame(self, camera_id: int, frame: np.ndarray):
         """Update the displayed frame"""
         if frame is None:
             return
@@ -100,8 +100,8 @@ class CameraFeedWidget(QWidget):
         )
         self.video_label.setPixmap(scaled_pixmap)
 
-    @pyqtSlot(float)
-    def update_fps(self, fps: float):
+    @pyqtSlot(int, float)
+    def update_fps(self, camera_id: int, fps: float):
         """Update FPS display"""
         self.fps_label.setText(f"FPS: {fps:.1f}")
 
